@@ -4,6 +4,9 @@ const LoadTester = require('./LoadTester');
 const { config, validateConfig } = require('./config');
 
 async function main() {
+  let walletManager;
+  let error;
+  
   try {
     console.log('🚀 Ethereum Load Tester Starting...\n');
     
@@ -19,12 +22,12 @@ async function main() {
     try {
       const network = await provider.getNetwork();
       console.log(`📡 Network: ${network.name} (Chain ID: ${network.chainId})`);
-    } catch (error) {
+    } catch (networkError) {
       console.warn('⚠️  Could not fetch network info, but continuing...');
     }
     
     // Initialize wallet manager
-    const walletManager = new WalletManager(provider, config.privateKey);
+    walletManager = new WalletManager(provider, config.privateKey);
     console.log(`💼 Master wallet: ${walletManager.getMasterWallet().address}`);
     
     // Check master wallet balance
@@ -41,10 +44,6 @@ async function main() {
     // Distribute funds to child wallets
     console.log('\n📤 Distributing funds to child wallets...');
     await walletManager.distributeFunds();
-    
-    // Wait a moment for transactions to settle
-    console.log('\n⏳ Waiting for fund distribution to settle...');
-    await sleep(5000);
     
     // Verify wallet balances
     console.log('\n💰 Verifying wallet balances...');
@@ -85,9 +84,24 @@ async function main() {
     
     console.log('✅ Load test completed successfully!');
     
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-    process.exit(1);
+  } catch (err) {
+    error = err;
+    console.error('❌ Error:', err.message);
+  } finally {
+    // Always try to collect funds back, regardless of success or failure
+    try {
+      if (walletManager && walletManager.getWallets().length > 0) {
+        console.log('\n🔄 Attempting to collect all remaining funds...');
+        await walletManager.collectAllFunds();
+      }
+    } catch (collectionError) {
+      console.error('⚠️  Fund collection failed:', collectionError.message);
+    }
+    
+    // Exit with appropriate code
+    if (error) {
+      process.exit(1);
+    }
   }
 }
 

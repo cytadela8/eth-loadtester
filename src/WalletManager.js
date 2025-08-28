@@ -109,6 +109,88 @@ class WalletManager {
   getMasterWallet() {
     return this.masterWallet;
   }
+
+  async collectAllFunds() {
+    console.log('\n💰 Collecting remaining funds from all wallets...');
+    
+    const wallets = this.getWallets();
+    let totalCollected = 0n;
+    let successfulCollections = 0;
+    
+    // Collect from all wallets concurrently
+    const collectionPromises = wallets.map(async (wallet, index) => {
+      try {
+        const balance = await this.provider.getBalance(wallet.address);
+        
+        if (balance === 0n) {
+          console.log(`Wallet ${index + 1}: No funds to collect`);
+          return { success: true, amount: 0n };
+        }
+
+        // Estimate gas cost for the transaction
+        const gasPrice = await this.provider.getFeeData();
+        const estimatedGasCost = BigInt(1000000) * (gasPrice.gasPrice || BigInt(20000000000)); // 20 gwei fallback
+        
+        if (balance <= estimatedGasCost) {
+          console.log(`Wallet ${index + 1}: Balance too low to cover gas (${ethers.formatEther(balance)} ETH)`);
+          return { success: true, amount: 0n };
+        }
+
+        const amountToSend = balance - estimatedGasCost;
+        
+        // Get current nonce for this wallet
+        const walletNonce = await this.provider.getTransactionCount(wallet.address, 'pending');
+        
+        const tx = await wallet.sendTransaction({
+          to: this.masterWallet.address,
+          value: amountToSend,
+          nonce: walletNonce
+        });
+        
+        console.log(`Wallet ${index + 1}: Collecting ${ethers.formatEther(amountToSend)} ETH - ${tx.hash}`);
+        
+        const receipt = await tx.wait();
+        
+        if (receipt.status === 1) {
+          console.log(`✓ Wallet ${index + 1}: Collection confirmed`);
+          return { success: true, amount: amountToSend };
+        } else {
+          console.log(`✗ Wallet ${index + 1}: Collection failed`);
+          return { success: false, amount: 0n };
+        }
+        
+      } catch (error) {
+        console.error(`Wallet ${index + 1}: Collection error - ${error.message}`);
+        return { success: false, amount: 0n };
+      }
+    });
+
+    // Wait for all collections to complete
+    const results = await Promise.all(collectionPromises);
+    
+    // Aggregate results
+    results.forEach(result => {
+      if (result.success) {
+        successfulCollections++;
+        totalCollected += result.amount;
+      }
+    });
+
+    console.log(`\n💰 Fund collection summary:`);
+    console.log(`- Successful collections: ${successfulCollections}/${wallets.length}`);
+    console.log(`- Total collected: ${ethers.formatEther(totalCollected)} ETH`);
+    
+    // Check final master wallet balance
+    const finalBalance = await this.provider.getBalance(this.masterWallet.address);
+    console.log(`- Master wallet final balance: ${ethers.formatEther(finalBalance)} ETH\n`);
+    
+    return {
+      successfulCollections,
+      totalWallets: wallets.length,
+      totalCollected,
+      finalMasterBalance: finalBalance
+    };
+  }
 }
 
 module.exports = WalletManager;
