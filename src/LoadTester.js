@@ -92,8 +92,7 @@ class LoadTester {
         to: recipient,
         value: amount,
         nonce: nonce,
-        gasLimit: 21000,
-        gasPrice: ethers.parseUnits('20', 'gwei') // 20 gwei gas price
+		// not setting gasLimit or gasPrice, becouse zksync network
       });
 
       this.stats.totalTransactions++;

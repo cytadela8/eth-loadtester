@@ -40,25 +40,49 @@ class WalletManager {
     const amountPerWallet = availableBalance / BigInt(this.childWallets.length);
     console.log(`Distributing ${ethers.formatEther(amountPerWallet)} ETH to each wallet`);
 
-    const distributionPromises = this.childWallets.map(async (wallet, index) => {
-      try {
-        const tx = await this.masterWallet.sendTransaction({
-          to: wallet.address,
-          value: amountPerWallet,
-        });
-        
-        console.log(`Sent funds to wallet ${index + 1}/${this.childWallets.length}: ${tx.hash}`);
-        await tx.wait();
-        console.log(`Confirmed funds for wallet ${index + 1}/${this.childWallets.length}`);
-        
-        return tx;
-      } catch (error) {
-        console.error(`Failed to send funds to wallet ${index + 1}:`, error.message);
-        throw error;
-      }
-    });
+    // Get initial nonce for master wallet
+    let currentNonce = await this.provider.getTransactionCount(this.masterWallet.address, 'pending');
 
-    await Promise.all(distributionPromises);
+    // Process wallets in batches of 20
+    const batchSize = 20;
+    for (let batchStart = 0; batchStart < this.childWallets.length; batchStart += batchSize) {
+      const batchEnd = Math.min(batchStart + batchSize, this.childWallets.length);
+      const batch = this.childWallets.slice(batchStart, batchEnd);
+      
+      console.log(`Processing batch ${Math.floor(batchStart / batchSize) + 1}: wallets ${batchStart + 1}-${batchEnd}`);
+
+      // Send all transactions in this batch concurrently
+      const batchPromises = batch.map(async (wallet, batchIndex) => {
+        const globalIndex = batchStart + batchIndex;
+        const txNonce = currentNonce + batchIndex;
+        
+        try {
+          const tx = await this.masterWallet.sendTransaction({
+            to: wallet.address,
+            value: amountPerWallet,
+            nonce: txNonce
+          });
+          
+          console.log(`Sent funds to wallet ${globalIndex + 1}/${this.childWallets.length}: ${tx.hash}`);
+          await tx.wait();
+          console.log(`Confirmed funds for wallet ${globalIndex + 1}/${this.childWallets.length}`);
+          
+          return tx;
+        } catch (error) {
+          console.error(`Failed to send funds to wallet ${globalIndex + 1}:`, error.message);
+          throw error;
+        }
+      });
+
+      // Wait for all transactions in this batch to complete
+      await Promise.all(batchPromises);
+      
+      // Update nonce for next batch
+      currentNonce += batch.length;
+      
+      console.log(`Batch ${Math.floor(batchStart / batchSize) + 1} completed`);
+    }
+
     console.log('Fund distribution completed');
   }
 
