@@ -61,6 +61,10 @@ class LoadTester {
   async runWalletTransactions(wallet, walletIndex) {
     console.log(`Starting transactions for wallet ${walletIndex + 1}`);
     
+    // Stagger the start time for each wallet to distribute transactions throughout the interval
+    const staggerDelay = (walletIndex * this.config.intervalMs) / this.walletManager.getWallets().length;
+    await this.sleep(staggerDelay);
+    
     for (let i = 0; i < this.config.transactionsPerWallet; i++) {
       if (!this.isRunning) break;
 
